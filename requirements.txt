@@ -1,0 +1,5 @@
+pyTelegramBotAPI
+requests
+SpeechRecognition
+pydub
+flask
