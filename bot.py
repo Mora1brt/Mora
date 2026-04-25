@@ -8,92 +8,50 @@ import re
 import random
 import sys
 import requests
-from lxml import html
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import threading
 from fake_useragent import FakeUserAgent
-from threading import Thread
 from bs4 import BeautifulSoup
 from telethon import TelegramClient, errors, functions, types
-from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest, InviteToChannelRequest, GetFullChannelRequest
-from telethon.tl.functions.messages import GetHistoryRequest, GetDialogsRequest
+from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest, InviteToChannelRequest
+from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.functions.contacts import ImportContactsRequest, DeleteContactsRequest
-from telethon.tl.types import InputPhoneContact, ChannelParticipantsRecent, ChannelParticipantsSearch
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telethon.tl.types import InputPhoneContact
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ContextTypes, ConversationHandler
 )
 from telegram.error import Conflict, NetworkError, TelegramError
-
-
-import warnings
 from telegram.warnings import PTBUserWarning
 
+import warnings
 warnings.filterwarnings("ignore", message=r".*CallbackQueryHandler", category=PTBUserWarning)
 
-
-DEVELOPER_ID = 8405201865
-DEVELOPER_USERNAME = "@ka_1lo"
-ADMIN_ID = 8405201865
-
-SESSIONS_DIR = "sessions"
-DATABASE_PATH = "data/bot_v3_2.db"
-JSON_DATA_PATH = "data/members_data.json"
-UPLOAD_DIR = "uploads"
-AUTO_SWITCH_ENABLED = False 
-# ========== إعدادات البوت القابلة للتعديل من لوحة الأدمن ==========
-SETTINGS_FILE = "bot_settings.json"
-
-# الإعدادات الافتراضية
-DEFAULT_SETTINGS = {
-    "MAX_ACCOUNTS": 500,
-    "CONTACTS_PER_ACCOUNT": 120,
-    "ADD_DELAY": 12.0,
-    "CONTACT_ADD_DELAY": 1.5,
-    "SCRAPE_BATCH_SIZE": 50,
-    "MAX_MESSAGES_SCRAPE": 20000,
-    "PARALLEL_WORKERS": 5,
-    "JOIN_DELAY": 2.0,
-    "LEAVE_DELAY": 2.0,
-    "AUTO_SWITCH_DEFAULT": False
-}
-
-# في بداية الكود، عدّل تعريف المتغيرات لتستخدم الإعدادات المحملة:
-
-# تحميل الإعدادات
-BOT_SETTINGS = load_settings()
-
-# استخدام الإعدادات المحملة
-MAX_ACCOUNTS = BOT_SETTINGS['MAX_ACCOUNTS']
-CONTACTS_PER_ACCOUNT = BOT_SETTINGS['CONTACTS_PER_ACCOUNT']
-ADD_DELAY = BOT_SETTINGS['ADD_DELAY']
-CONTACT_ADD_DELAY = BOT_SETTINGS['CONTACT_ADD_DELAY']
-SCRAPE_BATCH_SIZE = BOT_SETTINGS['SCRAPE_BATCH_SIZE']
-MAX_MESSAGES_SCRAPE = BOT_SETTINGS['MAX_MESSAGES_SCRAPE']
-
-API_SESSION = requests.Session()
-
-BOT_TOKEN = "8670665784:AAHY_Hm5Kk7CtO4PoOen4k76sqQmCOukd54"
-
-
-STOP_PROCESS = False
-
-
-os.makedirs(SESSIONS_DIR, exist_ok=True)
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
-
+# ========== إعدادات التسجيل ==========
+import logging
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.WARNING
 )
 logger = logging.getLogger(__name__)
-FAKE_USERAGENT = FakeUserAgent()
 
+# ========== الثوابت الأساسية ==========
+DEVELOPER_ID = 8405201865
+DEVELOPER_USERNAME = "@ka_1lo"
+ADMIN_ID = 8405201865
+BOT_TOKEN = "8263138216:AAHOxcueT0rvJALqHHJD3CAMSqJPf4OCagM"
 
+# ========== مسارات الملفات ==========
+SESSIONS_DIR = "sessions"
+DATABASE_PATH = "data/bot_v3_2.db"
+JSON_DATA_PATH = "data/members_data.json"
+UPLOAD_DIR = "uploads"
+SETTINGS_FILE = "bot_settings.json"
+USER_SETTINGS_DIR = "user_settings"
+AUTO_SWITCH_FILE = "auto_switch.txt"
+
+# ========== ملفات الأدمن ==========
 ADMIN_FILES = {
     "state": "Dyler.txt",
     "channel1": "Dyler0.txt",
@@ -109,34 +67,32 @@ ADMIN_FILES = {
     "welcome_message": "welcome_message.txt",
 }
 
+# ========== إنشاء ملف المالك ==========
+if not os.path.exists(ADMIN_FILES["owner"]):
+    with open(ADMIN_FILES["owner"], 'w') as f:
+        f.write(str(DEVELOPER_ID))
 
-# ========== إعدادات التبديل التلقائي لكل مستخدم ==========
-USER_SETTINGS_DIR = "user_settings"  # المجلد الجديد لتخزين إعدادات كل مستخدم
-os.makedirs(USER_SETTINGS_DIR, exist_ok=True)
+# ========== الإعدادات الافتراضية ==========
+DEFAULT_SETTINGS = {
+    "MAX_ACCOUNTS": 500,
+    "CONTACTS_PER_ACCOUNT": 120,
+    "ADD_DELAY": 12.0,
+    "CONTACT_ADD_DELAY": 1.5,
+    "SCRAPE_BATCH_SIZE": 50,
+    "MAX_MESSAGES_SCRAPE": 20000,
+    "PARALLEL_WORKERS": 5,
+    "JOIN_DELAY": 2.0,
+    "LEAVE_DELAY": 2.0,
+    "AUTO_SWITCH_DEFAULT": False
+}
 
-def get_user_auto_switch_file(user_id):
-    """الحصول على مسار ملف إعدادات التبديل التلقائي لمستخدم محدد"""
-    return os.path.join(USER_SETTINGS_DIR, f"auto_switch_{user_id}.txt")
-
-def is_auto_switch_enabled_for_user(user_id):
-    """التحقق من تفعيل خاصية التبديل التلقائي لمستخدم محدد"""
-    return os.path.exists(get_user_auto_switch_file(user_id))
-
-def enable_auto_switch_for_user(user_id):
-    """تفعيل خاصية التبديل التلقائي لمستخدم محدد"""
-    if not is_auto_switch_enabled_for_user(user_id):
-        with open(get_user_auto_switch_file(user_id), 'w') as f:
-            f.write("enabled")
-        return True
-    return False
-
+# ========== دوال تحميل وحفظ الإعدادات (تعريفها أولاً) ==========
 def load_settings():
     """تحميل الإعدادات من ملف JSON"""
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
                 settings = json.load(f)
-                # دمج مع الإعدادات الافتراضية لأي قيم جديدة
                 for key, value in DEFAULT_SETTINGS.items():
                     if key not in settings:
                         settings[key] = value
@@ -157,142 +113,47 @@ def update_setting(key, value):
     save_settings(settings)
     return settings
 
-# تحميل الإعدادات عند بدء التشغيل
+# ========== تحميل الإعدادات (بعد تعريف الدوال) ==========
 BOT_SETTINGS = load_settings()
 
-# ========== دوال السحب المتوازي السريع ==========
+# ========== تعيين المتغيرات من الإعدادات ==========
+MAX_ACCOUNTS = BOT_SETTINGS['MAX_ACCOUNTS']
+CONTACTS_PER_ACCOUNT = BOT_SETTINGS['CONTACTS_PER_ACCOUNT']
+ADD_DELAY = BOT_SETTINGS['ADD_DELAY']
+CONTACT_ADD_DELAY = BOT_SETTINGS['CONTACT_ADD_DELAY']
+SCRAPE_BATCH_SIZE = BOT_SETTINGS['SCRAPE_BATCH_SIZE']
+MAX_MESSAGES_SCRAPE = BOT_SETTINGS['MAX_MESSAGES_SCRAPE']
+PARALLEL_WORKERS = BOT_SETTINGS['PARALLEL_WORKERS']
+JOIN_DELAY = BOT_SETTINGS['JOIN_DELAY']
+LEAVE_DELAY = BOT_SETTINGS['LEAVE_DELAY']
 
+# ========== باقي الكود (إنشاء المجلدات، التسجيل، etc.) ==========
+STOP_PROCESS = False
+AUTO_SWITCH_ENABLED = False
+STORE_VISIBLE_SOURCE = 34
 
-# إنشاء executor للمهام المتوازية
-_executor = ThreadPoolExecutor(max_workers=10)
+# إنشاء المجلدات
+os.makedirs(SESSIONS_DIR, exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+os.makedirs(USER_SETTINGS_DIR, exist_ok=True)
 
-async def fetch_messages_batch(client, entity, offset_id, limit):
-    """جلب دفعة من الرسائل بشكل غير متزامن"""
-    try:
-        messages = await client(GetHistoryRequest(
-            peer=entity,
-            limit=limit,
-            offset_date=None,
-            offset_id=offset_id,
-            max_id=0,
-            min_id=0,
-            add_offset=0,
-            hash=0
-        ))
-        return messages.messages
-    except Exception as e:
-        logger.error(f"خطأ في جلب الدفعة: {e}")
-        return []
+# ========== دوال التبديل التلقائي لكل مستخدم ==========
+def get_user_auto_switch_file(user_id):
+    """الحصول على مسار ملف إعدادات التبديل التلقائي لمستخدم محدد"""
+    return os.path.join(USER_SETTINGS_DIR, f"auto_switch_{user_id}.txt")
 
-async def scrape_hidden_members_parallel(client, entity, status_msg, max_messages=20000):
-    """سحب المخفيين بشكل متوازي وسريع"""
-    global STOP_PROCESS
-    STOP_PROCESS = False
+def is_auto_switch_enabled_for_user(user_id):
+    """التحقق من تفعيل خاصية التبديل التلقائي لمستخدم محدد"""
+    return os.path.exists(get_user_auto_switch_file(user_id))
 
-    users_to_save = []
-    seen_ids = set()
-    seen_lock = asyncio.Lock()
-    
-    batch_size = 200  # زيادة حجم الدفعة للتسريع
-    max_batches = (max_messages // batch_size) + 5
-    
-    # جلب أول دفعة للحصول على إجمالي الرسائل
-    first_batch = await fetch_messages_batch(client, entity, 0, batch_size)
-    if not first_batch:
-        return []
-    
-    total_messages = len(first_batch)
-    all_messages = first_batch
-    
-    # إذا كان هناك رسائل أكثر، نواصل الجلب بشكل متوازي
-    if total_messages >= batch_size:
-        offset_id = first_batch[-1].id
-        batch_tasks = []
-        
-        # إنشاء مهام متوازية لجلب الدفعات
-        for batch_num in range(max_batches - 1):
-            if STOP_PROCESS:
-                break
-            batch_tasks.append(fetch_messages_batch(client, entity, offset_id, batch_size))
-            offset_id -= batch_size  # نتحرك للخلف لجلب رسائل أقدم
-            
-            # ننفذ كل 5 مهام معاً
-            if len(batch_tasks) >= 5:
-                results = await asyncio.gather(*batch_tasks)
-                for res in results:
-                    if res:
-                        all_messages.extend(res)
-                        total_messages += len(res)
-                batch_tasks = []
-                
-                # تحديث الحالة كل 1000 رسالة
-                if total_messages % 1000 < batch_size:
-                    await status_msg.edit_text(
-                        f"⏳ جاري السحب المتوازي...\n"
-                        f"📨 تم جلب: `{total_messages}` رسالة\n"
-                        f"👥 تم استخراج: `{len(users_to_save)}` مستخدم\n"
-                        f"⚡ وضع: سريع (متوازي)",
-                        reply_markup=get_stop_keyboard(),
-                        parse_mode="Markdown"
-                    )
-                await asyncio.sleep(0.1)
-        
-        # جلب أي مهام متبقية
-        if batch_tasks:
-            results = await asyncio.gather(*batch_tasks)
-            for res in results:
-                if res:
-                    all_messages.extend(res)
-    
-    # معالجة الرسائل بشكل متوازي لاستخراج المستخدمين
-    await status_msg.edit_text(
-        f"⏳ جاري استخراج المستخدمين من `{len(all_messages)}` رسالة...\n"
-        f"⚡ استخدام المعالجة المتوازية...",
-        parse_mode="Markdown",
-        reply_markup=get_stop_keyboard()
-    )
-    
-    # تقسيم الرسائل لمجموعات للمعالجة المتوازية
-    chunk_size = 500
-    chunks = [all_messages[i:i+chunk_size] for i in range(0, len(all_messages), chunk_size)]
-    
-    async def process_chunk(chunk):
-        """معالجة دفعة من الرسائل لاستخراج المستخدمين"""
-        local_users = []
-        local_ids = set()
-        
-        for m in chunk:
-            if STOP_PROCESS:
-                break
-            if m.from_id and isinstance(m.from_id, types.PeerUser):
-                u_id = m.from_id.user_id
-                if u_id not in local_ids:
-                    try:
-                        # نحاول جلب معلومات المستخدم
-                        user = await client.get_entity(u_id)
-                        if not user.bot and user.username:
-                            local_users.append((user.id, user.username, user.access_hash, None, 'hidden'))
-                            local_ids.add(u_id)
-                    except:
-                        pass
-        return local_users, local_ids
-    
-    # تنفيذ معالجة الدفعات بشكل متوازي
-    chunk_tasks = [process_chunk(chunk) for chunk in chunks[:20]]  # حد أقصى 20 مهمة متوازية
-    
-    results = await asyncio.gather(*chunk_tasks)
-    
-    for users, ids in results:
-        async with seen_lock:
-            for user in users:
-                if user[0] not in seen_ids:
-                    seen_ids.add(user[0])
-                    users_to_save.append(user)
-    
-    if STOP_PROCESS:
-        STOP_PROCESS = False
-    
-    return users_to_save
+def enable_auto_switch_for_user(user_id):
+    """تفعيل خاصية التبديل التلقائي لمستخدم محدد"""
+    if not is_auto_switch_enabled_for_user(user_id):
+        with open(get_user_auto_switch_file(user_id), 'w') as f:
+            f.write("enabled")
+        return True
+    return False
 
 def disable_auto_switch_for_user(user_id):
     """تعطيل خاصية التبديل التلقائي لمستخدم محدد"""
@@ -301,368 +162,6 @@ def disable_auto_switch_for_user(user_id):
         os.remove(user_file)
         return True
     return False
-
-class TelegramAPICreator:
-    def __init__(self, user_id):
-        self.user_id = user_id
-        self.phone_number = None
-        self.random_hash = None
-        self.stel_token = None
-        self.useragent = FakeUserAgent().random
-        self.app_title = None
-        self.app_shortname = None
-        self.app_url = None
-        self.app_platform = None
-        self.app_desc = None
-        self.session = requests.Session()
-
-    def send_password(self) -> bool:
-        """إرسال طلب الحصول على كلمة المرور"""
-        try:
-            response = self.session.post(
-                url="https://my.telegram.org/auth/send_password",
-                data={"phone": self.phone_number},
-                headers={
-                    "Origin": "https://my.telegram.org",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Accept-Language": "ar,en;q=0.9",
-                    "User-Agent": self.useragent,
-                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                    "Accept": "application/json, text/javascript, */*; q=0.01",
-                    "Referer": "https://my.telegram.org/auth",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Connection": "keep-alive",
-                }
-            )
-            if response.status_code == 200:
-                get_json = json.loads(response.content)
-                self.random_hash = get_json.get("random_hash")
-                return True
-            else:
-                logger.error(f"Send password failed with status: {response.status_code}")
-                return False
-        except Exception as e:
-            logger.error(f"Error sending password: {e}")
-            return False
-
-    def auth_login(self, code: str) -> bool:
-        """تسجيل الدخول باستخدام رمز التحقق"""
-        try:
-            response = self.session.post(
-                url="https://my.telegram.org/auth/login",
-                data={
-                    "phone": self.phone_number,
-                    "random_hash": self.random_hash,
-                    "password": code
-                },
-                headers={
-                    "Origin": "https://my.telegram.org",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Accept-Language": "ar,en;q=0.9",
-                    "User-Agent": self.useragent,
-                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                    "Accept": "application/json, text/javascript, */*; q=0.01",
-                    "Referer": "https://my.telegram.org/auth",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Connection": "keep-alive",
-                }
-            )
-            if response.status_code == 200:
-                if 'stel_token' in response.cookies:
-                    self.stel_token = response.cookies['stel_token']
-                    return True
-                try:
-                    resp_json = response.json()
-                    if resp_json.get('success'):
-                        return True
-                except:
-                    pass
-            return False
-        except Exception as e:
-            logger.error(f"Error auth login: {e}")
-            return False
-
-    def get_app_data(self):
-        """استرجاع بيانات API الموجودة باستخدام BeautifulSoup (الطريقة الصحيحة)"""
-        try:
-            response = self.session.get(
-                url="https://my.telegram.org/apps",
-                headers={
-                    "User-Agent": self.useragent,
-                    "Referer": "https://my.telegram.org/org",
-                }
-            )
-
-            if response.status_code != 200:
-                logger.error(f"Failed to get apps page: {response.status_code}")
-                return None
-
-            soup = BeautifulSoup(response.text, 'html.parser')
-
-
-            try:
-
-                api_id_label = soup.find('label', string='App api_id:')
-                if api_id_label:
-                    api_id_div = api_id_label.find_next_sibling('div')
-                    if api_id_div:
-                        api_id_span = api_id_div.select_one('span')
-                        if api_id_span:
-                            api_id = api_id_span.get_text().strip()
-                        else:
-                            api_id = api_id_div.get_text().strip()
-                    else:
-                        api_id = None
-                else:
-                    api_id = None
-
-
-                api_hash_label = soup.find('label', string='App api_hash:')
-                if api_hash_label:
-                    api_hash_div = api_hash_label.find_next_sibling('div')
-                    if api_hash_div:
-                        api_hash_span = api_hash_div.select_one('span')
-                        if api_hash_span:
-                            api_hash = api_hash_span.get_text().strip()
-                        else:
-                            api_hash = api_hash_div.get_text().strip()
-                    else:
-                        api_hash = None
-                else:
-                    api_hash = None
-
-                if api_id and api_hash and api_id != 'None' and api_hash != 'None':
-                    logger.info(f"Successfully extracted existing app data - ID: {api_id}")
-                    return api_id, api_hash
-
-            except Exception as e:
-                logger.error(f"Error parsing with BeautifulSoup: {e}")
-
-
-            try:
-                api_id_match = re.search(r'api_id[^0-9]*([0-9]+)', response.text, re.IGNORECASE)
-                api_hash_match = re.search(r'api_hash[^a-f0-9]*([a-f0-9]{32})', response.text, re.IGNORECASE)
-
-                if api_id_match and api_hash_match:
-                    return api_id_match.group(1), api_hash_match.group(1)
-            except:
-                pass
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Error getting app data: {e}")
-            return None
-
-    def create_new_app(self):
-        """إنشاء تطبيق جديد"""
-        try:
-
-            response = self.session.get(
-                url="https://my.telegram.org/apps",
-                headers={
-                    "User-Agent": self.useragent,
-                    "Referer": "https://my.telegram.org/org"
-                }
-            )
-
-            if response.status_code != 200:
-                logger.error(f"Failed to get apps page: {response.status_code}")
-                return False
-
-            content = response.text
-            soup = BeautifulSoup(content, 'html.parser')
-
-
-            hash_value = None
-
-
-            hash_input = soup.find('input', {'name': 'hash'})
-            if hash_input and hash_input.get('value'):
-                hash_value = hash_input.get('value')
-
-
-            if not hash_value:
-                hash_match = re.search(r'name="hash"\s+value="([^"]+)"', content)
-                if hash_match:
-                    hash_value = hash_match.group(1)
-
-
-            if not hash_value:
-                hash_match = re.search(r'hash=([a-f0-9]+)', content)
-                if hash_match:
-                    hash_value = hash_match.group(1)
-
-            if not hash_value:
-                logger.error("Hash not found in page")
-                return False
-
-            logger.info(f"Found hash: {hash_value}")
-
-
-            app_data = {
-                "hash": hash_value,
-                "app_title": self.app_title,
-                "app_shortname": self.app_shortname,
-                "app_url": self.app_url,
-                "app_platform": self.app_platform,
-                "app_desc": self.app_desc
-            }
-
-
-            create_response = self.session.post(
-                url="https://my.telegram.org/apps/create",
-                data=app_data,
-                headers={
-                    "User-Agent": self.useragent,
-                    "Origin": "https://my.telegram.org",
-                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                    "Accept": "application/json, text/javascript, */*; q=0.01",
-                    "Referer": "https://my.telegram.org/apps",
-                    "X-Requested-With": "XMLHttpRequest",
-                }
-            )
-
-            logger.info(f"Create response status: {create_response.status_code}")
-
-
-            if create_response.status_code == 200:
-                try:
-                    resp_json = create_response.json()
-                    if resp_json.get('error'):
-                        logger.error(f"Server error: {resp_json.get('error')}")
-                        return False
-                except:
-                    pass
-
-
-                time.sleep(3)
-                return self.retrieve_created_app_data()
-            else:
-                logger.error(f"Creation failed with status: {create_response.status_code}")
-                try:
-                    error_json = create_response.json()
-                    logger.error(f"Error message: {error_json}")
-                except:
-                    logger.error(f"Error response: {create_response.text[:200]}")
-                return False
-
-        except Exception as e:
-            logger.error(f"Error creating app: {e}")
-            return False
-
-    def retrieve_created_app_data(self):
-        """استرجاع بيانات التطبيق بعد الإنشاء"""
-        for attempt in range(10):
-            time.sleep(3)
-
-            try:
-                response = self.session.get(
-                    url="https://my.telegram.org/apps",
-                    headers={"User-Agent": self.useragent}
-                )
-
-                if response.status_code != 200:
-                    continue
-
-                soup = BeautifulSoup(response.text, 'html.parser')
-
-
-                try:
-                    api_id_label = soup.find('label', string='App api_id:')
-                    if api_id_label:
-                        api_id_div = api_id_label.find_next_sibling('div')
-                        if api_id_div:
-                            api_id_span = api_id_div.select_one('span')
-                            api_id = api_id_span.get_text().strip() if api_id_span else api_id_div.get_text().strip()
-                        else:
-                            api_id = None
-                    else:
-                        api_id = None
-
-                    api_hash_label = soup.find('label', string='App api_hash:')
-                    if api_hash_label:
-                        api_hash_div = api_hash_label.find_next_sibling('div')
-                        if api_hash_div:
-                            api_hash_span = api_hash_div.select_one('span')
-                            api_hash = api_hash_span.get_text().strip() if api_hash_span else api_hash_div.get_text().strip()
-                        else:
-                            api_hash = None
-                    else:
-                        api_hash = None
-
-                    if api_id and api_hash and api_id != 'None' and api_hash != 'None':
-                        logger.info(f"Successfully retrieved credentials on attempt {attempt + 1}")
-                        return api_id, api_hash
-
-                except Exception as e:
-                    logger.error(f"Error parsing on attempt {attempt + 1}: {e}")
-
-
-                api_id_match = re.search(r'api_id[^0-9]*([0-9]+)', response.text, re.IGNORECASE)
-                api_hash_match = re.search(r'api_hash[^a-f0-9]*([a-f0-9]{32})', response.text, re.IGNORECASE)
-
-                if api_id_match and api_hash_match:
-                    logger.info(f"Retrieved via regex on attempt {attempt + 1}")
-                    return api_id_match.group(1), api_hash_match.group(1)
-
-                logger.info(f"Attempt {attempt + 1}: Credentials not yet available")
-
-            except Exception as e:
-                logger.error(f"Error retrieving data on attempt {attempt + 1}: {e}")
-
-        return False
-
-
-if not os.path.exists(ADMIN_FILES["owner"]):
-    with open(ADMIN_FILES["owner"], 'w') as f:
-        f.write(str(DEVELOPER_ID))
-
-
-for file in ADMIN_FILES.values():
-    if not os.path.exists(file):
-        with open(file, 'w') as f:
-            pass
-
-
-
-def format_channel_link(channel):
-    """تحويل معرف القناة إلى رابط صالح لزر Inline Keyboard"""
-    if not channel:
-        return None
-    channel = channel.strip()
-
-    if channel.startswith('@'):
-        return f"https://t.me/{channel[1:]}"
-
-    if channel.startswith('https://t.me/') or channel.startswith('http://t.me/'):
-        return channel
-
-    if channel.startswith('+'):
-        return f"https://t.me/joinchat/{channel[1:]}"
-    if 'joinchat' in channel:
-        return channel if channel.startswith('http') else f"https://t.me/{channel}"
-
-    return f"https://t.me/{channel.replace('@', '')}"
-
-async def periodic_check(application=None):
-    """تشغيل فحص الحسابات كل ساعة"""
-    while True:
-        try:
-            await asyncio.sleep(3600)
-            removed = await check_all_accounts_subscription()
-            if removed > 0:
-                logger.info(f"✅ تم الفحص الدوري: تم حذف {removed} حساب غير مشترك")
-            else:
-                logger.info("✅ تم الفحص الدوري: جميع الحسابات مشتركة")
-        except asyncio.CancelledError:
-            logger.info("تم إيقاف الفحص الدوري")
-            break
-        except Exception as e:
-            logger.error(f"خطأ في الفحص الدوري: {e}")
-
-# ========== إدارة التبديل التلقائي ==========
-AUTO_SWITCH_FILE = "auto_switch.txt"
 
 def is_auto_switch_enabled():
     """التحقق من تفعيل خاصية التبديل التلقائي"""
@@ -683,6 +182,52 @@ def disable_auto_switch():
         return True
     return False
 
+# ========== إنشاء ملف المالك ==========
+if not os.path.exists(ADMIN_FILES["owner"]):
+    with open(ADMIN_FILES["owner"], 'w') as f:
+        f.write(str(DEVELOPER_ID))
+
+# ========== إنشاء ملفات الأدمن ==========
+for file in ADMIN_FILES.values():
+    if not os.path.exists(file):
+        with open(file, 'w') as f:
+            pass
+
+# ========== دوال التعامل مع ملفات الأدمن ==========
+def get_admin_file_content(file_path):
+    """قراءة محتوى ملف"""
+    try:
+        with open(file_path, 'r') as f:
+            return f.read().strip()
+    except:
+        return ""
+
+def get_admin_file_lines(file_path):
+    """قراءة سطور الملف"""
+    try:
+        with open(file_path, 'r') as f:
+            return [line.strip() for line in f.readlines() if line.strip()]
+    except:
+        return []
+
+def write_to_admin_file(file_path, content, append=False):
+    """الكتابة في ملف"""
+    mode = 'a' if append else 'w'
+    with open(file_path, mode) as f:
+        if append:
+            f.write(f"\n{content}")
+        else:
+            f.write(str(content))
+
+def remove_from_admin_file(file_path, content):
+    """حذف سطر من ملف"""
+    lines = get_admin_file_lines(file_path)
+    if content in lines:
+        lines.remove(content)
+        with open(file_path, 'w') as f:
+            f.write("\n".join(lines))
+
+# ========== دوال التحقق من الصلاحيات ==========
 def is_owner(user_id):
     """التحقق من أن المستخدم هو المالك"""
     owner = get_admin_file_content(ADMIN_FILES["owner"])
@@ -728,64 +273,15 @@ def unban_user(user_id):
 
 def change_owner(new_owner_id):
     """تغيير المالك (للمطور الأساسي فقط)"""
-
     if str(new_owner_id).isdigit():
-
-        users_list = get_admin_file_lines(ADMIN_FILES["users"])
-
-
-
-
-
-
         write_to_admin_file(ADMIN_FILES["owner"], new_owner_id)
-
-
         old_owner = get_admin_file_content(ADMIN_FILES["owner"])
         if old_owner and str(old_owner) != str(new_owner_id):
-
             admins = get_admin_file_lines(ADMIN_FILES["admins_list"])
             if str(old_owner) not in admins:
                 write_to_admin_file(ADMIN_FILES["admins_list"], old_owner, append=True)
-
         return True
     return False
-
-
-
-
-def get_admin_file_content(file_path):
-    """قراءة محتوى ملف"""
-    try:
-        with open(file_path, 'r') as f:
-            return f.read().strip()
-    except:
-        return ""
-
-def get_admin_file_lines(file_path):
-    """قراءة سطور الملف"""
-    try:
-        with open(file_path, 'r') as f:
-            return [line.strip() for line in f.readlines() if line.strip()]
-    except:
-        return []
-
-def write_to_admin_file(file_path, content, append=False):
-    """الكتابة في ملف"""
-    mode = 'a' if append else 'w'
-    with open(file_path, mode) as f:
-        if append:
-            f.write(f"\n{content}")
-        else:
-            f.write(str(content))
-
-def remove_from_admin_file(file_path, content):
-    """حذف سطر من ملف"""
-    lines = get_admin_file_lines(file_path)
-    if content in lines:
-        lines.remove(content)
-        with open(file_path, 'w') as f:
-            f.write("\n".join(lines))
 
 def check_subscription(user_id):
     """التحقق من اشتراك المستخدم في القنوات الإجبارية"""
@@ -817,10 +313,540 @@ def check_subscription(user_id):
     except:
         return False
 
+# ========== كلاس قاعدة البيانات ==========
+class Database:
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self.init_db()
 
+    def get_connection(self):
+        return sqlite3.connect(self.db_path)
 
+    def init_db(self):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('CREATE TABLE IF NOT EXISTS accounts (phone TEXT PRIMARY KEY, api_id INTEGER, api_hash TEXT, session_name TEXT, owner_id TEXT)')
+            cursor.execute('CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)')
+            cursor.execute('CREATE TABLE IF NOT EXISTS members (user_id INTEGER PRIMARY KEY, username TEXT, access_hash TEXT, phone TEXT, type TEXT)')
+            conn.commit()
+
+    def add_account(self, phone, api_id, api_hash, session_name, owner_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('INSERT OR REPLACE INTO accounts VALUES (?, ?, ?, ?, ?)', (phone, api_id, api_hash, session_name, owner_id))
+            conn.commit()
+
+    def get_accounts(self):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM accounts')
+            return cursor.fetchall()
+
+    def get_user_accounts(self, user_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM accounts WHERE owner_id = ?', (str(user_id),))
+            return cursor.fetchall()
+
+    def get_account_count(self):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM accounts')
+            return cursor.fetchone()[0]
+
+    def remove_account(self, phone):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM accounts WHERE phone = ?', (phone,))
+            conn.commit()
+
+    def save_members(self, members_list):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany('INSERT OR IGNORE INTO members (user_id, username, access_hash, phone, type) VALUES (?, ?, ?, ?, ?)', members_list)
+            conn.commit()
+
+        json_list = []
+        for m in members_list:
+            json_list.append({
+                "user_id": m[0],
+                "username": m[1],
+                "access_hash": str(m[2]),
+                "phone": m[3],
+                "type": m[4]
+            })
+        save_to_json(json_list)
+
+    def clear_members(self, m_type=None):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if m_type:
+                cursor.execute('DELETE FROM members WHERE type = ?', (m_type,))
+            else:
+                cursor.execute('DELETE FROM members')
+            conn.commit()
+
+    def get_members_by_type(self, m_type):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM members WHERE type = ?', (m_type,))
+            return cursor.fetchall()
+
+# ========== إنشاء قاعدة البيانات ==========
+db = Database(DATABASE_PATH)
+
+# ========== دوال مساعدة ==========
+def resolve_conflict(token):
+    """حذف الويب هوك وإلغاء أي طلبات معلقة"""
+    try:
+        url = f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=True"
+        response = requests.get(url)
+        if response.status_code == 200:
+            logger.info("✅ تم تصفية كافة الجلسات المعلقة بنجاح.")
+            return True
+    except Exception as e:
+        logger.error(f"❌ فشل في تصفية الجلسات: {e}")
+    return False
+
+def save_to_json(data, filename=JSON_DATA_PATH):
+    """حفظ البيانات في ملف JSON"""
+    try:
+        existing_data = []
+        if os.path.exists(filename):
+            with open(filename, 'r', encoding='utf-8') as f:
+                try:
+                    existing_data = json.load(f)
+                except json.JSONDecodeError:
+                    existing_data = []
+
+        seen_ids = {item['user_id'] for item in existing_data}
+        for item in data:
+            if item['user_id'] not in seen_ids:
+                existing_data.append(item)
+                seen_ids.add(item['user_id'])
+
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(existing_data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logger.error(f"خطأ في حفظ JSON: {e}")
+
+def format_channel_link(channel):
+    """تحويل معرف القناة إلى رابط صالح لزر Inline Keyboard"""
+    if not channel:
+        return None
+    channel = channel.strip()
+
+    if channel.startswith('@'):
+        return f"https://t.me/{channel[1:]}"
+
+    if channel.startswith('https://t.me/') or channel.startswith('http://t.me/'):
+        return channel
+
+    if channel.startswith('+'):
+        return f"https://t.me/joinchat/{channel[1:]}"
+    if 'joinchat' in channel:
+        return channel if channel.startswith('http') else f"https://t.me/{channel}"
+
+    return f"https://t.me/{channel.replace('@', '')}"
+
+# ========== دوال السحب المتوازي ==========
+async def fetch_messages_batch(client, entity, offset_id, limit):
+    """جلب دفعة من الرسائل بشكل غير متزامن"""
+    try:
+        messages = await client(GetHistoryRequest(
+            peer=entity,
+            limit=limit,
+            offset_date=None,
+            offset_id=offset_id,
+            max_id=0,
+            min_id=0,
+            add_offset=0,
+            hash=0
+        ))
+        return messages.messages
+    except Exception as e:
+        logger.error(f"خطأ في جلب الدفعة: {e}")
+        return []
+
+async def scrape_hidden_members_parallel(client, entity, status_msg, max_messages=20000):
+    """سحب المخفيين بشكل متوازي وسريع"""
+    global STOP_PROCESS
+    STOP_PROCESS = False
+
+    users_to_save = []
+    seen_ids = set()
+    seen_lock = asyncio.Lock()
+    
+    batch_size = 200
+    max_batches = (max_messages // batch_size) + 5
+    
+    first_batch = await fetch_messages_batch(client, entity, 0, batch_size)
+    if not first_batch:
+        return []
+    
+    total_messages = len(first_batch)
+    all_messages = first_batch
+    
+    if total_messages >= batch_size:
+        offset_id = first_batch[-1].id
+        batch_tasks = []
+        
+        for batch_num in range(max_batches - 1):
+            if STOP_PROCESS:
+                break
+            batch_tasks.append(fetch_messages_batch(client, entity, offset_id, batch_size))
+            offset_id -= batch_size
+            
+            if len(batch_tasks) >= 5:
+                results = await asyncio.gather(*batch_tasks)
+                for res in results:
+                    if res:
+                        all_messages.extend(res)
+                        total_messages += len(res)
+                batch_tasks = []
+                
+                if total_messages % 1000 < batch_size:
+                    await status_msg.edit_text(
+                        f"⏳ جاري السحب المتوازي...\n"
+                        f"📨 تم جلب: `{total_messages}` رسالة\n"
+                        f"👥 تم استخراج: `{len(users_to_save)}` مستخدم\n"
+                        f"⚡ وضع: سريع (متوازي)",
+                        parse_mode="Markdown"
+                    )
+                await asyncio.sleep(0.1)
+        
+        if batch_tasks:
+            results = await asyncio.gather(*batch_tasks)
+            for res in results:
+                if res:
+                    all_messages.extend(res)
+    
+    await status_msg.edit_text(
+        f"⏳ جاري استخراج المستخدمين من `{len(all_messages)}` رسالة...\n"
+        f"⚡ استخدام المعالجة المتوازية...",
+        parse_mode="Markdown"
+    )
+    
+    chunk_size = 500
+    chunks = [all_messages[i:i+chunk_size] for i in range(0, len(all_messages), chunk_size)]
+    
+    async def process_chunk(chunk):
+        local_users = []
+        local_ids = set()
+        
+        for m in chunk:
+            if STOP_PROCESS:
+                break
+            if m.from_id and isinstance(m.from_id, types.PeerUser):
+                u_id = m.from_id.user_id
+                if u_id not in local_ids:
+                    try:
+                        user = await client.get_entity(u_id)
+                        if not user.bot and user.username:
+                            local_users.append((user.id, user.username, user.access_hash, None, 'hidden'))
+                            local_ids.add(u_id)
+                    except:
+                        pass
+        return local_users, local_ids
+    
+    chunk_tasks = [process_chunk(chunk) for chunk in chunks[:20]]
+    results = await asyncio.gather(*chunk_tasks)
+    
+    for users, ids in results:
+        async with seen_lock:
+            for user in users:
+                if user[0] not in seen_ids:
+                    seen_ids.add(user[0])
+                    users_to_save.append(user)
+    
+    if STOP_PROCESS:
+        STOP_PROCESS = False
+    
+    return users_to_save
+
+# ========== كلاس إنشاء API تيليجرام ==========
+class TelegramAPICreator:
+    def __init__(self, user_id):
+        self.user_id = user_id
+        self.phone_number = None
+        self.random_hash = None
+        self.stel_token = None
+        self.useragent = FakeUserAgent().random
+        self.app_title = None
+        self.app_shortname = None
+        self.app_url = None
+        self.app_platform = None
+        self.app_desc = None
+        self.session = requests.Session()
+
+    def send_password(self) -> bool:
+        """إرسال طلب الحصول على كلمة المرور"""
+        try:
+            response = self.session.post(
+                url="https://my.telegram.org/auth/send_password",
+                data={"phone": self.phone_number},
+                headers={
+                    "Origin": "https://my.telegram.org",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Accept-Language": "ar,en;q=0.9",
+                    "User-Agent": self.useragent,
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "Accept": "application/json, text/javascript, */*; q=0.01",
+                    "Referer": "https://my.telegram.org/auth",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Connection": "keep-alive",
+                }
+            )
+            if response.status_code == 200:
+                get_json = json.loads(response.content)
+                self.random_hash = get_json.get("random_hash")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error sending password: {e}")
+            return False
+
+    def auth_login(self, code: str) -> bool:
+        """تسجيل الدخول باستخدام رمز التحقق"""
+        try:
+            response = self.session.post(
+                url="https://my.telegram.org/auth/login",
+                data={
+                    "phone": self.phone_number,
+                    "random_hash": self.random_hash,
+                    "password": code
+                },
+                headers={
+                    "Origin": "https://my.telegram.org",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Accept-Language": "ar,en;q=0.9",
+                    "User-Agent": self.useragent,
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "Accept": "application/json, text/javascript, */*; q=0.01",
+                    "Referer": "https://my.telegram.org/auth",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Connection": "keep-alive",
+                }
+            )
+            if response.status_code == 200:
+                if 'stel_token' in response.cookies:
+                    self.stel_token = response.cookies['stel_token']
+                    return True
+                try:
+                    resp_json = response.json()
+                    if resp_json.get('success'):
+                        return True
+                except:
+                    pass
+            return False
+        except Exception as e:
+            logger.error(f"Error auth login: {e}")
+            return False
+
+    def get_app_data(self):
+        """استرجاع بيانات API الموجودة"""
+        try:
+            response = self.session.get(
+                url="https://my.telegram.org/apps",
+                headers={
+                    "User-Agent": self.useragent,
+                    "Referer": "https://my.telegram.org/org",
+                }
+            )
+
+            if response.status_code != 200:
+                return None
+
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            try:
+                api_id_label = soup.find('label', string='App api_id:')
+                if api_id_label:
+                    api_id_div = api_id_label.find_next_sibling('div')
+                    if api_id_div:
+                        api_id_span = api_id_div.select_one('span')
+                        api_id = api_id_span.get_text().strip() if api_id_span else api_id_div.get_text().strip()
+                    else:
+                        api_id = None
+                else:
+                    api_id = None
+
+                api_hash_label = soup.find('label', string='App api_hash:')
+                if api_hash_label:
+                    api_hash_div = api_hash_label.find_next_sibling('div')
+                    if api_hash_div:
+                        api_hash_span = api_hash_div.select_one('span')
+                        api_hash = api_hash_span.get_text().strip() if api_hash_span else api_hash_div.get_text().strip()
+                    else:
+                        api_hash = None
+                else:
+                    api_hash = None
+
+                if api_id and api_hash and api_id != 'None' and api_hash != 'None':
+                    return api_id, api_hash
+            except Exception as e:
+                logger.error(f"Error parsing: {e}")
+
+            api_id_match = re.search(r'api_id[^0-9]*([0-9]+)', response.text, re.IGNORECASE)
+            api_hash_match = re.search(r'api_hash[^a-f0-9]*([a-f0-9]{32})', response.text, re.IGNORECASE)
+
+            if api_id_match and api_hash_match:
+                return api_id_match.group(1), api_hash_match.group(1)
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting app data: {e}")
+            return None
+
+    def create_new_app(self):
+        """إنشاء تطبيق جديد"""
+        try:
+            response = self.session.get(
+                url="https://my.telegram.org/apps",
+                headers={
+                    "User-Agent": self.useragent,
+                    "Referer": "https://my.telegram.org/org"
+                }
+            )
+
+            if response.status_code != 200:
+                return False
+
+            content = response.text
+            soup = BeautifulSoup(content, 'html.parser')
+
+            hash_value = None
+            hash_input = soup.find('input', {'name': 'hash'})
+            if hash_input and hash_input.get('value'):
+                hash_value = hash_input.get('value')
+
+            if not hash_value:
+                hash_match = re.search(r'name="hash"\s+value="([^"]+)"', content)
+                if hash_match:
+                    hash_value = hash_match.group(1)
+
+            if not hash_value:
+                hash_match = re.search(r'hash=([a-f0-9]+)', content)
+                if hash_match:
+                    hash_value = hash_match.group(1)
+
+            if not hash_value:
+                return False
+
+            app_data = {
+                "hash": hash_value,
+                "app_title": self.app_title,
+                "app_shortname": self.app_shortname,
+                "app_url": self.app_url,
+                "app_platform": self.app_platform,
+                "app_desc": self.app_desc
+            }
+
+            create_response = self.session.post(
+                url="https://my.telegram.org/apps/create",
+                data=app_data,
+                headers={
+                    "User-Agent": self.useragent,
+                    "Origin": "https://my.telegram.org",
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "Accept": "application/json, text/javascript, */*; q=0.01",
+                    "Referer": "https://my.telegram.org/apps",
+                    "X-Requested-With": "XMLHttpRequest",
+                }
+            )
+
+            if create_response.status_code == 200:
+                try:
+                    resp_json = create_response.json()
+                    if resp_json.get('error'):
+                        return False
+                except:
+                    pass
+
+                time.sleep(3)
+                return self.retrieve_created_app_data()
+            return False
+
+        except Exception as e:
+            logger.error(f"Error creating app: {e}")
+            return False
+
+    def retrieve_created_app_data(self):
+        """استرجاع بيانات التطبيق بعد الإنشاء"""
+        for attempt in range(10):
+            time.sleep(3)
+
+            try:
+                response = self.session.get(
+                    url="https://my.telegram.org/apps",
+                    headers={"User-Agent": self.useragent}
+                )
+
+                if response.status_code != 200:
+                    continue
+
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                try:
+                    api_id_label = soup.find('label', string='App api_id:')
+                    if api_id_label:
+                        api_id_div = api_id_label.find_next_sibling('div')
+                        if api_id_div:
+                            api_id_span = api_id_div.select_one('span')
+                            api_id = api_id_span.get_text().strip() if api_id_span else api_id_div.get_text().strip()
+                        else:
+                            api_id = None
+                    else:
+                        api_id = None
+
+                    api_hash_label = soup.find('label', string='App api_hash:')
+                    if api_hash_label:
+                        api_hash_div = api_hash_label.find_next_sibling('div')
+                        if api_hash_div:
+                            api_hash_span = api_hash_div.select_one('span')
+                            api_hash = api_hash_span.get_text().strip() if api_hash_span else api_hash_div.get_text().strip()
+                        else:
+                            api_hash = None
+                    else:
+                        api_hash = None
+
+                    if api_id and api_hash and api_id != 'None' and api_hash != 'None':
+                        return api_id, api_hash
+                except Exception as e:
+                    logger.error(f"Error parsing: {e}")
+
+                api_id_match = re.search(r'api_id[^0-9]*([0-9]+)', response.text, re.IGNORECASE)
+                api_hash_match = re.search(r'api_hash[^a-f0-9]*([a-f0-9]{32})', response.text, re.IGNORECASE)
+
+                if api_id_match and api_hash_match:
+                    return api_id_match.group(1), api_hash_match.group(1)
+
+            except Exception as e:
+                logger.error(f"Error retrieving data: {e}")
+
+        return False
+
+# ========== دوال الفحص الدوري ==========
+async def periodic_check(application=None):
+    """تشغيل فحص الحسابات كل ساعة"""
+    while True:
+        try:
+            await asyncio.sleep(3600)
+            removed = await check_all_accounts_subscription()
+            if removed > 0:
+                logger.info(f"✅ تم الفحص الدوري: تم حذف {removed} حساب غير مشترك")
+            else:
+                logger.info("✅ تم الفحص الدوري: جميع الحسابات مشتركة")
+        except asyncio.CancelledError:
+            logger.info("تم إيقاف الفحص الدوري")
+            break
+        except Exception as e:
+            logger.error(f"خطأ في الفحص الدوري: {e}")
+
+# ========== دوال لوحات الأدمن ==========
 def get_admin_sections_keyboard():
-    """لوحة أقسام الأدمن الرئيسية (محدثة)"""
+    """لوحة أقسام الأدمن الرئيسية"""
     keyboard = [
         [
             InlineKeyboardButton("📢 إشتراك إجباري", callback_data="section_subscription"),
@@ -836,7 +862,7 @@ def get_admin_sections_keyboard():
         ],
         [
             InlineKeyboardButton("🎨 تخصيص البوت", callback_data="section_customize"),
-            InlineKeyboardButton("⚙️ الإعدادات", callback_data="section_settings")  # <-- الزر الجديد
+            InlineKeyboardButton("⚙️ الإعدادات", callback_data="section_settings")
         ],
         [
             InlineKeyboardButton("📝 رسالة الترحيب", callback_data="section_welcome")
@@ -922,32 +948,22 @@ def get_forward_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_users_management_keyboard():
-    """لوحة إدارة المستخدمين - نسخة منظمة"""
+    """لوحة إدارة المستخدمين"""
     keyboard = [
-
         [InlineKeyboardButton("━━━━━ 👑 الأدمن ━━━━━", callback_data="noop")],
         [
             InlineKeyboardButton("➕ إضافة", callback_data="add_admin"),
             InlineKeyboardButton("➖ حذف", callback_data="remove_admin"),
             InlineKeyboardButton("📋 القائمة", callback_data="list_admins")
         ],
-
-
         [InlineKeyboardButton("━━━━━ 🚫 الحظر ━━━━━", callback_data="noop")],
         [
             InlineKeyboardButton("🚫 حظر", callback_data="ban_user"),
             InlineKeyboardButton("✅ فك حظر", callback_data="unban_user"),
             InlineKeyboardButton("🚷 المحظورين", callback_data="list_banned")
         ],
-
-
         [InlineKeyboardButton("━━━━━ 👤 المستخدمين ━━━━━", callback_data="noop")],
-        [
-
-            InlineKeyboardButton("👤 المستخدمين", callback_data="list_all_users")
-        ],
-
-
+        [InlineKeyboardButton("👤 المستخدمين", callback_data="list_all_users")],
         [InlineKeyboardButton("🔙 رجوع للوحة الرئيسية", callback_data="admin_sections")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -960,49 +976,42 @@ def get_settings_keyboard():
         [InlineKeyboardButton("📊 الإعدادات العامة", callback_data="noop")],
         [InlineKeyboardButton("━━━━━━━━━━━━━━━━━━━━━", callback_data="noop")],
         
-        # عدد الحسابات
         [InlineKeyboardButton(f"📱 الحد الأقصى للحسابات: {settings['MAX_ACCOUNTS']}", callback_data="noop")],
         [
             InlineKeyboardButton("🔻 -10", callback_data="set_MAX_ACCOUNTS_down"),
             InlineKeyboardButton("🔺 +10", callback_data="set_MAX_ACCOUNTS_up")
         ],
         
-        # عدد جهات الاتصال لكل حساب
         [InlineKeyboardButton(f"📞 جهات الاتصال لكل حساب: {settings['CONTACTS_PER_ACCOUNT']}", callback_data="noop")],
         [
             InlineKeyboardButton("🔻 -10", callback_data="set_CONTACTS_PER_ACCOUNT_down"),
             InlineKeyboardButton("🔺 +10", callback_data="set_CONTACTS_PER_ACCOUNT_up")
         ],
         
-        # تأخير الإضافة
         [InlineKeyboardButton(f"⏱️ تأخير الإضافة (ثانية): {settings['ADD_DELAY']}", callback_data="noop")],
         [
             InlineKeyboardButton("🔻 -1", callback_data="set_ADD_DELAY_down"),
             InlineKeyboardButton("🔺 +1", callback_data="set_ADD_DELAY_up")
         ],
         
-        # تأخير إضافة جهات الاتصال
         [InlineKeyboardButton(f"⏱️ تأخير إضافة جهات: {settings['CONTACT_ADD_DELAY']}", callback_data="noop")],
         [
             InlineKeyboardButton("🔻 -0.2", callback_data="set_CONTACT_ADD_DELAY_down"),
             InlineKeyboardButton("🔺 +0.2", callback_data="set_CONTACT_ADD_DELAY_up")
         ],
         
-        # حجم دفعة السحب
         [InlineKeyboardButton(f"📦 حجم دفعة السحب: {settings['SCRAPE_BATCH_SIZE']}", callback_data="noop")],
         [
             InlineKeyboardButton("🔻 -10", callback_data="set_SCRAPE_BATCH_SIZE_down"),
             InlineKeyboardButton("🔺 +10", callback_data="set_SCRAPE_BATCH_SIZE_up")
         ],
         
-        # عدد الرسائل للفحص
         [InlineKeyboardButton(f"📨 عدد الرسائل للفحص: {settings['MAX_MESSAGES_SCRAPE']:,}", callback_data="noop")],
         [
             InlineKeyboardButton("🔻 -1000", callback_data="set_MAX_MESSAGES_SCRAPE_down"),
             InlineKeyboardButton("🔺 +1000", callback_data="set_MAX_MESSAGES_SCRAPE_up")
         ],
         
-        # عدد العمال المتوازيين
         [InlineKeyboardButton(f"⚡ العمال المتوازيين: {settings['PARALLEL_WORKERS']}", callback_data="noop")],
         [
             InlineKeyboardButton("🔻 -1", callback_data="set_PARALLEL_WORKERS_down"),
@@ -1018,11 +1027,8 @@ def get_settings_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-
-
 def get_customize_keyboard():
     """لوحة تخصيص البوت"""
-
     keyboard = [
         [InlineKeyboardButton("📝 تعديل رسالة الترحيب", callback_data="edit_welcome")],
         [InlineKeyboardButton("👁️ معاينة رسالة الترحيب", callback_data="preview_welcome")],
@@ -1030,7 +1036,6 @@ def get_customize_keyboard():
         [InlineKeyboardButton("🔙 رجوع", callback_data="admin_sections")]
     ]
     return InlineKeyboardMarkup(keyboard)
-
 
 def get_welcome_edit_keyboard():
     """لوحة تعديل رسالة الترحيب"""
@@ -1040,7 +1045,6 @@ def get_welcome_edit_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-
 def get_add_admin_keyboard():
     """لوحة تأكيد إضافة أدمن"""
     keyboard = [
@@ -1048,124 +1052,7 @@ def get_add_admin_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-
-def resolve_conflict(token):
-    """حذف الويب هوك وإلغاء أي طلبات معلقة"""
-    try:
-        url = f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=True"
-        response = requests.get(url)
-        if response.status_code == 200:
-            logger.info("✅ تم تصفية كافة الجلسات المعلقة بنجاح.")
-            return True
-    except Exception as e:
-        logger.error(f"❌ فشل في تصفية الجلسات: {e}")
-    return False
-
-
-def save_to_json(data, filename=JSON_DATA_PATH):
-    """حفظ البيانات في ملف JSON"""
-    try:
-        existing_data = []
-        if os.path.exists(filename):
-            with open(filename, 'r', encoding='utf-8') as f:
-                try:
-                    existing_data = json.load(f)
-                except json.JSONDecodeError:
-                    existing_data = []
-
-        seen_ids = {item['user_id'] for item in existing_data}
-        for item in data:
-            if item['user_id'] not in seen_ids:
-                existing_data.append(item)
-                seen_ids.add(item['user_id'])
-
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(existing_data, f, ensure_ascii=False, indent=4)
-    except Exception as e:
-        logger.error(f"خطأ في حفظ JSON: {e}")
-
-
-class Database:
-    def __init__(self, db_path):
-        self.db_path = db_path
-        self.init_db()
-
-    def get_connection(self):
-        return sqlite3.connect(self.db_path)
-
-    def init_db(self):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('CREATE TABLE IF NOT EXISTS accounts (phone TEXT PRIMARY KEY, api_id INTEGER, api_hash TEXT, session_name TEXT, owner_id TEXT)')
-            cursor.execute('CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)')
-            cursor.execute('CREATE TABLE IF NOT EXISTS members (user_id INTEGER PRIMARY KEY, username TEXT, access_hash TEXT, phone TEXT, type TEXT)')
-            conn.commit()
-
-    def add_account(self, phone, api_id, api_hash, session_name, owner_id):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('INSERT OR REPLACE INTO accounts VALUES (?, ?, ?, ?, ?)', (phone, api_id, api_hash, session_name, owner_id))
-            conn.commit()
-
-    def get_accounts(self):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM accounts')
-            return cursor.fetchall()
-
-    def get_user_accounts(self, user_id):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM accounts WHERE owner_id = ?', (str(user_id),))
-            return cursor.fetchall()
-
-    def get_account_count(self):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM accounts')
-            return cursor.fetchone()[0]
-
-    def remove_account(self, phone):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM accounts WHERE phone = ?', (phone,))
-            conn.commit()
-
-    def save_members(self, members_list):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.executemany('INSERT OR IGNORE INTO members (user_id, username, access_hash, phone, type) VALUES (?, ?, ?, ?, ?)', members_list)
-            conn.commit()
-
-        json_list = []
-        for m in members_list:
-            json_list.append({
-                "user_id": m[0],
-                "username": m[1],
-                "access_hash": str(m[2]),
-                "phone": m[3],
-                "type": m[4]
-            })
-        save_to_json(json_list)
-
-    def clear_members(self, m_type=None):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            if m_type:
-                cursor.execute('DELETE FROM members WHERE type = ?', (m_type,))
-            else:
-                cursor.execute('DELETE FROM members')
-            conn.commit()
-
-    def get_members_by_type(self, m_type):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM members WHERE type = ?', (m_type,))
-            return cursor.fetchall()
-
-db = Database(DATABASE_PATH)
-
-
+# ========== دوال التحويلات ==========
 (
     A_PHONE, A_API_ID, A_API_HASH, A_CODE, A_PASSWORD,
     JOIN_COUNT, JOIN_LINK,
@@ -1179,15 +1066,6 @@ db = Database(DATABASE_PATH)
     UPLOAD_BACKUP,
     UPLOAD_FILE_DOC
 ) = range(19)
-
-
-DEVICES = [
-    {"model": "Samsung Galaxy S21", "sys": "Android 12"},
-    {"model": "Infinix Note 12", "sys": "Android 11"},
-    {"model": "iPhone 13 Pro", "sys": "iOS 15.4"},
-    {"model": "Huawei P50 Pro", "sys": "Android 11"},
-    {"model": "Redmi Note 11", "sys": "Android 11"}
-]
 
 
 async def get_client(acc):
@@ -2545,23 +2423,28 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
     
     elif data == "view_all_settings":
         text = (
-            "📋 **جميع إعدادات البوت**\n"
-            "﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎\n"
-            f"• MAX_ACCOUNTS: `{settings['MAX_ACCOUNTS']}`\n"
-            f"• CONTACTS_PER_ACCOUNT: `{settings['CONTACTS_PER_ACCOUNT']}`\n"
-            f"• ADD_DELAY: `{settings['ADD_DELAY']}`\n"
-            f"• CONTACT_ADD_DELAY: `{settings['CONTACT_ADD_DELAY']}`\n"
-            f"• SCRAPE_BATCH_SIZE: `{settings['SCRAPE_BATCH_SIZE']}`\n"
-            f"• MAX_MESSAGES_SCRAPE: `{settings['MAX_MESSAGES_SCRAPE']:,}`\n"
-            f"• PARALLEL_WORKERS: `{settings['PARALLEL_WORKERS']}`\n"
-            f"• JOIN_DELAY: `{settings['JOIN_DELAY']}`\n"
-            f"• LEAVE_DELAY: `{settings['LEAVE_DELAY']}`\n"
-            f"• AUTO_SWITCH_DEFAULT: `{settings['AUTO_SWITCH_DEFAULT']}`\n"
-            "﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎\n"
-            "💾 تم حفظ الإعدادات بنجاح!"
+            "📋 جميع إعدادات البوت\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            f"MAX_ACCOUNTS: {settings['MAX_ACCOUNTS']}\n"
+            f"CONTACTS_PER_ACCOUNT: {settings['CONTACTS_PER_ACCOUNT']}\n"
+            f"ADD_DELAY: {settings['ADD_DELAY']}\n"
+            f"CONTACT_ADD_DELAY: {settings['CONTACT_ADD_DELAY']}\n"
+            f"SCRAPE_BATCH_SIZE: {settings['SCRAPE_BATCH_SIZE']}\n"
+            f"MAX_MESSAGES_SCRAPE: {settings['MAX_MESSAGES_SCRAPE']}\n"
+            f"PARALLEL_WORKERS: {settings['PARALLEL_WORKERS']}\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "تم حفظ الإعدادات بنجاح!"
         )
-        await query.edit_message_text(text, parse_mode="Markdown")
+        try:
+            await query.edit_message_text(text, parse_mode=None)
+        except:
+            await query.message.reply_text(text)
         await asyncio.sleep(3)
+        await query.edit_message_text(
+            "⚙️ لوحة إعدادات البوت",
+            reply_markup=get_settings_keyboard()
+        )
+        return
     
     # حفظ الإعدادات
     save_settings(settings)
@@ -2578,23 +2461,27 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
     SCRAPE_BATCH_SIZE = settings['SCRAPE_BATCH_SIZE']
     MAX_MESSAGES_SCRAPE = settings['MAX_MESSAGES_SCRAPE']
     
-    # تحديث الواجهة
+    # نص بدون HTML لتجنب أخطاء التحليل
     text = (
-        "⚙️ **لوحة إعدادات البوت**\n"
-        "﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎\n"
-        f"✅ تم تحديث الإعدادات!\n\n"
-        f"• أقصى حسابات: `{settings['MAX_ACCOUNTS']}`\n"
-        f"• جهات اتصال/حساب: `{settings['CONTACTS_PER_ACCOUNT']}`\n"
-        f"• تأخير الإضافة: `{settings['ADD_DELAY']} ثانية`\n"
-        f"• تأخير إضافة جهات: `{settings['CONTACT_ADD_DELAY']} ثانية`\n"
-        f"• حجم دفعة السحب: `{settings['SCRAPE_BATCH_SIZE']}`\n"
-        f"• عدد الرسائل للفحص: `{settings['MAX_MESSAGES_SCRAPE']:,}`\n"
-        f"• عمال متوازيين: `{settings['PARALLEL_WORKERS']}`\n"
-        "﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎﹎\n"
-        "⚠️ **تنبيه:** تغيير الإعدادات يؤثر على سرعة وأمان البوت!"
+        "⚙️ لوحة إعدادات البوت\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"تم تحديث الإعدادات!\n\n"
+        f"MAX_ACCOUNTS: {settings['MAX_ACCOUNTS']}\n"
+        f"CONTACTS_PER_ACCOUNT: {settings['CONTACTS_PER_ACCOUNT']}\n"
+        f"ADD_DELAY: {settings['ADD_DELAY']} ثانية\n"
+        f"CONTACT_ADD_DELAY: {settings['CONTACT_ADD_DELAY']} ثانية\n"
+        f"SCRAPE_BATCH_SIZE: {settings['SCRAPE_BATCH_SIZE']}\n"
+        f"MAX_MESSAGES_SCRAPE: {settings['MAX_MESSAGES_SCRAPE']}\n"
+        f"PARALLEL_WORKERS: {settings['PARALLEL_WORKERS']}\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "تغيير الإعدادات يؤثر على سرعة وأمان البوت!"
     )
     
-    await query.edit_message_text(text, reply_markup=get_settings_keyboard(), parse_mode="Markdown")
+    try:
+        await query.edit_message_text(text, parse_mode=None, reply_markup=get_settings_keyboard())
+    except Exception as e:
+        # إذا فشل التعديل، أرسل رسالة جديدة
+        await query.message.reply_text(text, reply_markup=get_settings_keyboard())
 
 async def handle_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة المستخدمين الجدد وإضافتهم للملفات"""
@@ -5471,52 +5358,64 @@ async def confirm_del_file_callback(update: Update, context: ContextTypes.DEFAUL
 
 
 async def extract_files_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """📑 استخراج الملفات - شرح الخدمة"""
+    """📑 استخراج الملفات - إرسال جميع ملفات الأعضاء"""
     query = update.callback_query
-    await query.answer()
     
+    # تأكد من أن الاستعلام صالح
+    try:
+        await query.answer()
+    except:
+        pass
+    
+    # جلب الملفات من مجلد uploads
     files = []
-    for f in os.listdir(UPLOAD_DIR):
-        if f.endswith(('.json', '.txt')):
-            files.append(f)
+    if os.path.exists(UPLOAD_DIR):
+        for f in os.listdir(UPLOAD_DIR):
+            if f.endswith(('.json', '.txt')):
+                files.append(f)
     
     if not files:
-        await query.edit_message_text(
-            "📭 لا توجد ملفات محفوظة!\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n"
-            "💡 يمكنك رفع ملفات جديدة باستخدام:\n"
-            "• زر '📤 رفع ملف أعضاء'",
-            parse_mode="Markdown"
-        )
+        try:
+            await query.edit_message_text(
+                "📭 لا توجد ملفات أعضاء محفوظة!\n\n"
+                "💡 يمكنك رفع ملفات جديدة باستخدام:\n"
+                "• زر '📤 رفع ملف أعضاء'"
+            )
+        except:
+            await query.message.reply_text(
+                "📭 لا توجد ملفات أعضاء محفوظة!\n\n"
+                "💡 يمكنك رفع ملفات جديدة باستخدام:\n"
+                "• زر '📤 رفع ملف أعضاء'"
+            )
         return
     
-    await query.edit_message_text(
-        "📑 استخراج الملفات\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📁 عدد الملفات المحفوظة: `{len(files)}`\n"
-        "⏳ جاري إرسال الملفات...\n"
-        "━━━━━━━━━━━━━━━━━━━━━",
-        parse_mode="Markdown"
-    )
+    # رسالة تأكيد البداية
+    try:
+        await query.edit_message_text(
+            f"📁 جاري إرسال {len(files)} ملف...\n"
+            f"⏳ الرجاء الانتظار..."
+        )
+    except:
+        await query.message.reply_text(
+            f"📁 جاري إرسال {len(files)} ملف...\n"
+            f"⏳ الرجاء الانتظار..."
+        )
     
     sent = 0
     for f in files:
         filepath = os.path.join(UPLOAD_DIR, f)
         try:
-            await query.message.reply_document(
-                document=open(filepath, 'rb'),
-                caption=f"📄 ملف: `{f}`\n📦 الحجم: `{os.path.getsize(filepath)} بايت`",
-                parse_mode="Markdown"
-            )
+            with open(filepath, 'rb') as file:
+                await query.message.reply_document(
+                    document=file,
+                    caption=f"📄 ملف: {f}"
+                )
             sent += 1
             await asyncio.sleep(0.5)
         except Exception as e:
             logger.error(f"خطأ في إرسال الملف {f}: {e}")
     
-    await query.message.reply_text(
-        f"✅ تم إرسال {sent} ملف بنجاح",
-        parse_mode="Markdown"
-    )
+    await query.message.reply_text(f"✅ تم إرسال {sent} من {len(files)} ملف بنجاح")
 
 async def add_contacts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إضافة إلى جهات الاتصال"""
@@ -5807,7 +5706,6 @@ def main():
             CallbackQueryHandler(upload_file_callback, pattern='^upload_file$'),
             CallbackQueryHandler(toggle_auto_switch_callback, pattern='^toggle_auto_switch$'),
             CallbackQueryHandler(del_file_callback, pattern='^del_file$'),
-            CallbackQueryHandler(extract_files_callback, pattern='^extract_files$'),
             CallbackQueryHandler(add_contacts_callback, pattern='^add_contacts$'),
             CallbackQueryHandler(check_subscription_callback, pattern='^check_subscription$'),
             CallbackQueryHandler(upload_backup_callback, pattern='^upload_backup$'),
@@ -5893,6 +5791,7 @@ def main():
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler('admin', admin_command))
     application.add_handler(CommandHandler('checkaccounts', check_accounts_command))
+    application.add_handler(CallbackQueryHandler(extract_files_callback, pattern='^extract_files$'))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_messages))
     application.add_handler(MessageHandler(filters.ALL, handle_new_user))
     application.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, start))
