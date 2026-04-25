@@ -51,6 +51,31 @@ SETTINGS_FILE = "bot_settings.json"
 USER_SETTINGS_DIR = "user_settings"
 AUTO_SWITCH_FILE = "auto_switch.txt"
 
+# ========== إعدادات الأجهزة ==========
+DEVICES = [
+    {"model": "Samsung Galaxy S21", "sys": "Android 12"},
+    {"model": "Infinix Note 12", "sys": "Android 11"},
+    {"model": "iPhone 13 Pro", "sys": "iOS 15.4"},
+    {"model": "Huawei P50 Pro", "sys": "Android 11"},
+    {"model": "Redmi Note 11", "sys": "Android 11"}
+]
+
+# ========== دوال التحويلات ==========
+(
+    A_PHONE, A_API_ID, A_API_HASH, A_CODE, A_PASSWORD,
+    JOIN_COUNT, JOIN_LINK,
+    LEAVE_LINK,
+    TRANSFER_HIDDEN_SOURCE, TRANSFER_HIDDEN_TARGET,
+    TRANSFER_VISIBLE_SOURCE, TRANSFER_VISIBLE_TARGET,
+    TRANSFER_FILE_DOC, TRANSFER_FILE_TARGET,
+    STORE_HIDDEN_SOURCE,
+    ADD_CONTACTS_SOURCE,
+    IMPORT_SESSION_FILE,
+    UPLOAD_BACKUP,
+    UPLOAD_FILE_DOC
+) = range(19)
+
+
 # ========== ملفات الأدمن ==========
 ADMIN_FILES = {
     "state": "Dyler.txt",
@@ -1053,21 +1078,6 @@ def get_add_admin_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 # ========== دوال التحويلات ==========
-(
-    A_PHONE, A_API_ID, A_API_HASH, A_CODE, A_PASSWORD,
-    JOIN_COUNT, JOIN_LINK,
-    LEAVE_LINK,
-    TRANSFER_HIDDEN_SOURCE, TRANSFER_HIDDEN_TARGET,
-    TRANSFER_VISIBLE_SOURCE, TRANSFER_VISIBLE_TARGET,
-    TRANSFER_FILE_DOC, TRANSFER_FILE_TARGET,
-    STORE_HIDDEN_SOURCE,
-    ADD_CONTACTS_SOURCE,
-    IMPORT_SESSION_FILE,
-    UPLOAD_BACKUP,
-    UPLOAD_FILE_DOC
-) = range(19)
-
-
 async def get_client(acc):
     """إنشاء عميل تيليجرام للحساب - يدعم 4 أو 5 عناصر"""
 
